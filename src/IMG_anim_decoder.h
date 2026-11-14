@@ -31,6 +31,7 @@ struct IMG_AnimationDecoder
     int timebase_numerator;
     int timebase_denominator;
     Uint64 accumulated_pts;
+    bool fallback_to_single_frame;
 
     bool (*GetNextFrame)(IMG_AnimationDecoder *decoder, SDL_Surface **frame, Uint64 *duration);
     bool (*Reset)(IMG_AnimationDecoder *decoder);

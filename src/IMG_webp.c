@@ -27,6 +27,7 @@
 #include "IMG_webp.h"
 #include "IMG_anim_encoder.h"
 #include "IMG_anim_decoder.h"
+#include "IMG_utils.h"
 #include "xmlman.h"
 
 // We will have the saving WEBP feature by default
@@ -397,6 +398,11 @@ SDL_Surface *IMG_LoadWEBP_IO(SDL_IOStream *src)
         format = SDL_PIXELFORMAT_RGB24;
     }
 
+    if (!IMG_ValidateSurfaceDimensions(features.width, features.height, SDL_BYTESPERPIXEL(format))) {
+        error = SDL_GetError();
+        goto error;
+    }
+
     surface = SDL_CreateSurface(features.width, features.height, format);
     if (surface == NULL) {
         error = "Failed to allocate SDL_Surface";
@@ -496,6 +502,10 @@ static bool IMG_AnimationDecoderGetNextFrame_Internal(IMG_AnimationDecoder *deco
     bool has_alpha = decoder->ctx->has_alpha;
     SDL_Rect last_rect = decoder->ctx->last_rect;
 
+    if (!IMG_ValidateSurfaceDimensions(iter->width, iter->height, 4)) {
+        return false;
+    }
+
     SDL_Surface *curr = SDL_CreateSurface(iter->width, iter->height, SDL_PIXELFORMAT_RGBA32);
     if (!curr) {
         return false;
@@ -579,6 +589,8 @@ static bool IMG_AnimationDecoderClose_Internal(IMG_AnimationDecoder *decoder)
 
 bool IMG_CreateWEBPAnimationDecoder(IMG_AnimationDecoder *decoder, SDL_PropertiesID props)
 {
+    decoder->fallback_to_single_frame = false;
+
     if (!IMG_InitWEBP()) {
         return SDL_SetError("Failed to initialize WEBP library");
     }
@@ -665,6 +677,11 @@ bool IMG_CreateWEBPAnimationDecoder(IMG_AnimationDecoder *decoder, SDL_Propertie
 
     bool has_alpha = (flags & 0x10) != 0;
     decoder->ctx->has_alpha = has_alpha;
+
+    if (!IMG_ValidateSurfaceDimensions(width, height, 4)) {
+        IMG_AnimationDecoderClose_Internal(decoder);
+        return false;
+    }
 
     decoder->ctx->canvas = SDL_CreateSurface(width, height, has_alpha ? SDL_PIXELFORMAT_RGBA32 : SDL_PIXELFORMAT_RGBX32);
     if (!decoder->ctx->canvas) {

@@ -27,6 +27,7 @@
 #include "IMG_gif.h"
 #include "IMG_anim_encoder.h"
 #include "IMG_anim_decoder.h"
+#include "IMG_utils.h"
 
 #define IMG_PROP_ANIMATION_DECODER_CREATE_GIF_SINGLE_IMAGE_BOOLEAN "SDL_image.animation_decoder.create.gif.single_image"
 
@@ -445,6 +446,9 @@ ReadImage(SDL_IOStream * src, int len, int height, int cmapSize,
             ;
         return NULL;
     }
+    if (!IMG_ValidateSurfaceDimensions(len, height, 1)) {
+        return NULL;
+    }
     image = ImageNewCmap(len, height, cmapSize);
     if (!image) {
         return NULL;
@@ -588,6 +592,9 @@ static bool IMG_AnimationDecoderGetGIFHeader(IMG_AnimationDecoder *decoder, char
 
         ctx->width = LM_to_uint(ctx->buf[0], ctx->buf[1]);
         ctx->height = LM_to_uint(ctx->buf[2], ctx->buf[3]);
+        if (!IMG_ValidateSurfaceDimensions(ctx->width, ctx->height, 4)) {
+            return false;
+        }
         ctx->state.GifScreen.Width = ctx->width;
         ctx->state.GifScreen.Height = ctx->height;
         ctx->state.GifScreen.BitPixel = 2 << (ctx->buf[4] & 0x07);
@@ -687,10 +694,12 @@ static bool IMG_AnimationDecoderGetGIFHeader(IMG_AnimationDecoder *decoder, char
                                 size_t new_len = current_len + sub_block_size;
                                 char *temp_comment = SDL_realloc(c, new_len + 1);
                                 if (!temp_comment) {
+                                    SDL_free(c);
                                     return SDL_SetError("Failed to allocate memory for GIF comment");
                                 }
                                 c = temp_comment;
                                 if (!ReadOK(src, c + current_len, sub_block_size)) {
+                                    SDL_free(c);
                                     return SDL_SetError("Error reading GIF comment data");
                                 }
                                 current_len = new_len;
@@ -993,6 +1002,8 @@ static bool IMG_AnimationDecoderClose_Internal(IMG_AnimationDecoder *decoder)
 
 bool IMG_CreateGIFAnimationDecoder(IMG_AnimationDecoder *decoder, SDL_PropertiesID props)
 {
+    decoder->fallback_to_single_frame = false;
+
     IMG_AnimationDecoderContext *ctx = (IMG_AnimationDecoderContext*)SDL_calloc(1, sizeof(IMG_AnimationDecoderContext));
     if (!ctx) {
         return SDL_SetError("Out of memory for GIF decoder context");
@@ -1023,6 +1034,7 @@ bool IMG_CreateGIFAnimationDecoder(IMG_AnimationDecoder *decoder, SDL_Properties
     char *comment = NULL;
     int loop_count = 1;
     if (!IMG_AnimationDecoderGetGIFHeader(decoder, &comment, &loop_count)) {
+        SDL_free(comment);
         return false;
     }
 

@@ -201,6 +201,7 @@ IMG_AnimationDecoder *IMG_CreateAnimationDecoderWithProperties(SDL_PropertiesID 
     decoder->closeio = closeio;
     decoder->timebase_numerator = timebase_numerator;
     decoder->timebase_denominator = timebase_denominator;
+    decoder->fallback_to_single_frame = true;
     decoder->props = SDL_CreateProperties();
     if (!decoder->props) {
         SDL_SetError("Failed to create properties for animation decoder");
@@ -225,7 +226,16 @@ IMG_AnimationDecoder *IMG_CreateAnimationDecoderWithProperties(SDL_PropertiesID 
             goto error;
         }
 
-        result = IMG_CreateSingleFrameAnimationDecoder(decoder, type);
+        if (decoder->ctx) {
+            if (!decoder->Close) {
+                goto error;
+            }
+            decoder->Close(decoder);
+        }
+
+        if (decoder->fallback_to_single_frame) {
+            result = IMG_CreateSingleFrameAnimationDecoder(decoder, type);
+        }
     }
 
     if (result) {
@@ -241,6 +251,12 @@ error:
         }
     }
     if (decoder) {
+        if (decoder->ctx && decoder->Close) {
+            decoder->Close(decoder);
+        }
+        if (decoder->props) {
+            SDL_DestroyProperties(decoder->props);
+        }
         SDL_free(decoder);
     }
     return NULL;

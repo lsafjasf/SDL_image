@@ -5,8 +5,11 @@ enable_testing()
 set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
 
 set(RESOURCE_FILES
+    palette-alpha.png
     palette.bmp
     palette.gif
+    png16.png
+    png16-rgb.png
     rgbrgb.ani
     rgbrgb.avifs
     rgbrgb.gif
@@ -102,7 +105,7 @@ function(add_sdl_image_test NAME)
         "SDL_IMAGE_SAVE_JPG=$<BOOL:${SDLIMAGE_JPG_SAVE}>"
         "SDL_IMAGE_SAVE_PNG=$<BOOL:${SDLIMAGE_PNG_SAVE}>"
         "SDL_IMAGE_ANIM_ANI=$<BOOL:${SDLIMAGE_ANI_ENABLED}>"
-        "SDL_IMAGE_ANIM_APNG=$<AND:$<BOOL:${SDLIMAGE_PNG_ENABLED}>,$<NOT:$<OR:$<BOOL:${SDLIMAGE_BACKEND_WIC}>,$<BOOL:${SDLIMAGE_BACKEND_STB}>,$<BOOL:${SDLIMAGE_BACKEND_IMAGEIO}>>>>"
+        "SDL_IMAGE_ANIM_APNG=$<BOOL:${SDLIMAGE_APNG_ENABLED}>"
         "SDL_IMAGE_ANIM_AVIFS=$<BOOL:${SDLIMAGE_AVIF_ENABLED}>"
         "SDL_IMAGE_ANIM_GIF=$<BOOL:${SDLIMAGE_GIF_ENABLED}>"
         "SDL_IMAGE_ANIM_WEBP=$<BOOL:${SDLIMAGE_WEBP_ENABLED}>"
@@ -138,10 +141,19 @@ add_custom_target(copy-sdl_image-test-resources DEPENDS "${RESOURCE_FILES_BIN_AB
 
 add_sdl_image_test_executable(testimage SOURCES testimage.c RESOURCES)
 add_sdl_image_test_executable(testanimation SOURCES testanimation.c RESOURCES)
+add_sdl_image_test_executable(testformat SOURCES testformat.c RESOURCES)
 
 add_sdl_image_test(testimage COMMAND testimage)
 add_sdl_image_test(testanimation_dummy_metadata COMMAND testanimation)
 add_sdl_image_test(testanimation COMMAND testanimation --no-dummy-metadata)
+add_sdl_image_test(testformat COMMAND testformat)
+
+add_custom_target(check-format
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R "^testformat$"
+    DEPENDS testformat
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    USES_TERMINAL
+)
 
 
 if(SDLIMAGE_TESTS_INSTALL)

@@ -23,6 +23,8 @@
 
 #include <SDL3_image/SDL_image.h>
 
+#include "IMG_utils.h"
+
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #endif
@@ -631,4 +633,18 @@ SDL_Surface *IMG_ApplyOrientation(SDL_Surface *surface, int orientation)
     }
 #endif
     return surface;
+}
+
+bool IMG_ValidateSurfaceDimensions(Uint32 width, Uint32 height, int bytes_per_pixel)
+{
+    if (bytes_per_pixel <= 0) {
+        bytes_per_pixel = 1;
+    }
+    if (width == 0 || height == 0 || width > SDL_MAX_SINT32 || height > SDL_MAX_SINT32) {
+        return SDL_SetError("Image dimensions are invalid");
+    }
+    if ((Uint64)width * height * (Uint64)bytes_per_pixel > (Uint64)SDL_MAX_SINT32) {
+        return SDL_SetError("Image dimensions are too large");
+    }
+    return true;
 }

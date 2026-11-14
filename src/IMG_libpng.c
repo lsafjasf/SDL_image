@@ -443,6 +443,11 @@ static bool LIBPNG_LoadPNG_IO_Internal(SDL_IOStream *src, struct png_load_vars *
     lib.png_get_IHDR(vars->png_ptr, vars->info_ptr, &vars->width, &vars->height, &vars->bit_depth,
                      &vars->color_type, &vars->interlace_type, NULL, NULL);
 
+    if (!IMG_ValidateSurfaceDimensions(vars->width, vars->height, SDL_BYTESPERPIXEL(vars->format))) {
+        vars->error = SDL_GetError();
+        return false;
+    }
+
     vars->surface = SDL_CreateSurface(vars->width, vars->height, vars->format);
     if (vars->surface == NULL) {
         vars->error = SDL_GetError();
@@ -459,6 +464,12 @@ static bool LIBPNG_LoadPNG_IO_Internal(SDL_IOStream *src, struct png_load_vars *
             }
 
             for (int i = 0; i < palette->ncolors; i++) {
+                palette->colors[i].r = 0;
+                palette->colors[i].g = 0;
+                palette->colors[i].b = 0;
+                palette->colors[i].a = 0;
+            }
+            for (int i = 0; i < vars->num_palette && i < palette->ncolors; i++) {
                 palette->colors[i].r = vars->png_palette[i].red;
                 palette->colors[i].g = vars->png_palette[i].green;
                 palette->colors[i].b = vars->png_palette[i].blue;
@@ -499,9 +510,9 @@ static bool LIBPNG_LoadPNG_IO_Internal(SDL_IOStream *src, struct png_load_vars *
     lib.png_read_image(vars->png_ptr, vars->row_pointers);
 
 #if SDL_BYTEORDER != SDL_BIG_ENDIAN
-    if (vars->format == SDL_PIXELFORMAT_RGBA64) {
+    if (vars->format == SDL_PIXELFORMAT_RGBA64 || vars->format == SDL_PIXELFORMAT_RGB48) {
         Uint16 *pixels = (Uint16 *)vars->surface->pixels;
-        int num_pixels = vars->width * vars->height * 4;
+        int num_pixels = vars->width * vars->height * SDL_BYTESPERPIXEL(vars->format) / 2;
         for (int i = 0; i < num_pixels; i++) {
             pixels[i] = SDL_Swap16(pixels[i]);
         }
@@ -1058,6 +1069,12 @@ struct IMG_AnimationDecoderContext
     Uint32 size_PLTE;
     png_bytep chunk_tRNS;
     Uint32 size_tRNS;
+
+    char *desc;
+    char *rights;
+    char *title;
+    char *author;
+    char *creationtime;
 };
 
 static bool IMG_AnimationDecoderReset_Internal(IMG_AnimationDecoder *decoder)
@@ -1153,6 +1170,9 @@ static bool IMG_AnimationDecoderGetNextFrame_Internal(IMG_AnimationDecoder *deco
 
     DecompressionContext decompressionContext;
     SDL_zero(decompressionContext);
+    if (!IMG_ValidateSurfaceDimensions(fctl->width, fctl->height, 4)) {
+        return false;
+    }
     SDL_Surface *temp_frame = decompress_png_frame_data(
         &decompressionContext,
         fctl->raw_idat_data,
@@ -1231,6 +1251,11 @@ static bool IMG_AnimationDecoderClose_Internal(IMG_AnimationDecoder *decoder)
     SDL_free(ctx->chunk_tRNS);
     SDL_DestroySurface(ctx->canvas);
     SDL_DestroySurface(ctx->prev_canvas_copy);
+    SDL_free(ctx->desc);
+    SDL_free(ctx->rights);
+    SDL_free(ctx->title);
+    SDL_free(ctx->author);
+    SDL_free(ctx->creationtime);
 
     SDL_free(ctx);
     decoder->ctx = NULL;
@@ -1262,13 +1287,6 @@ bool IMG_CreateAPNGAnimationDecoder(IMG_AnimationDecoder *decoder, SDL_Propertie
         IMG_AnimationDecoderClose_Internal(decoder);
         return false;
     }
-
-    // Extracted metadata will be assigned to variables below
-    char *desc = NULL;
-    char *rights = NULL;
-    char *title = NULL;
-    char *author = NULL;
-    char *creationtime = NULL;
 
     bool found_iend = false;
     while (!found_iend) {
@@ -1306,6 +1324,7 @@ bool IMG_CreateAPNGAnimationDecoder(IMG_AnimationDecoder *decoder, SDL_Propertie
             ctx->png_color_type = *(Uint8 *)(chunk_data + 9);
 
         } else if (SDL_memcmp(chunk_type, "acTL", 4) == 0) {
+            decoder->fallback_to_single_frame = false;
             if (chunk_length != 8) {
                 SDL_SetError("Invalid acTL chunk size");
                 SDL_free(chunk);
@@ -1482,15 +1501,20 @@ bool IMG_CreateAPNGAnimationDecoder(IMG_AnimationDecoder *decoder, SDL_Propertie
                     keyword[keyword_len] = '\0';
                     char *text = (char *)(separator + 1);
                     if (SDL_strcasecmp(keyword, "description") == 0) {
-                        desc = SDL_strndup(text, text_len);
+                        SDL_free(ctx->desc);
+                        ctx->desc = SDL_strndup(text, text_len);
                     } else if (SDL_strcasecmp(keyword, "copyright") == 0) {
-                        rights = SDL_strndup(text, text_len);
+                        SDL_free(ctx->rights);
+                        ctx->rights = SDL_strndup(text, text_len);
                     } else if (SDL_strcasecmp(keyword, "title") == 0) {
-                        title = SDL_strndup(text, text_len);
+                        SDL_free(ctx->title);
+                        ctx->title = SDL_strndup(text, text_len);
                     } else if (SDL_strcasecmp(keyword, "author") == 0) {
-                        author = SDL_strndup(text, text_len);
+                        SDL_free(ctx->author);
+                        ctx->author = SDL_strndup(text, text_len);
                     } else if (SDL_strcasecmp(keyword, "creation time") == 0) {
-                        creationtime = SDL_strndup(text, text_len);
+                        SDL_free(ctx->creationtime);
+                        ctx->creationtime = SDL_strndup(text, text_len);
                     }
                     SDL_free(keyword);
                 }
@@ -1502,7 +1526,7 @@ bool IMG_CreateAPNGAnimationDecoder(IMG_AnimationDecoder *decoder, SDL_Propertie
         }
     }
 
-    if (!ctx->is_apng || ctx->fctl_count == 0 || ctx->actl.num_frames > (unsigned int)ctx->fctl_count) {
+    if (!ctx->is_apng || ctx->actl.num_frames == 0 || ctx->fctl_count == 0 || ctx->actl.num_frames > (unsigned int)ctx->fctl_count) {
         SDL_SetError("Not an APNG file or not enough frame control chunks found");
         IMG_AnimationDecoderClose_Internal(decoder);
         return false;
@@ -1511,6 +1535,10 @@ bool IMG_CreateAPNGAnimationDecoder(IMG_AnimationDecoder *decoder, SDL_Propertie
     // Validate what might be missing or wrong
     if (ctx->bit_depth < 1 || ctx->png_color_type < 0 || ctx->width < 1 || ctx->height < 1) {
         SDL_SetError("Received invalid APNG with either corrupt or unspecified bit depth, color type, width or height");
+        IMG_AnimationDecoderClose_Internal(decoder);
+        return false;
+    }
+    if (!IMG_ValidateSurfaceDimensions(ctx->width, ctx->height, 4)) {
         IMG_AnimationDecoderClose_Internal(decoder);
         return false;
     }
@@ -1528,25 +1556,30 @@ bool IMG_CreateAPNGAnimationDecoder(IMG_AnimationDecoder *decoder, SDL_Propertie
         SDL_SetNumberProperty(decoder->props, IMG_PROP_METADATA_LOOP_COUNT_NUMBER, ctx->actl.num_plays);
 
         // Get other well-defined properties and set them in our props.
-        if (desc) {
-            SDL_SetStringProperty(decoder->props, IMG_PROP_METADATA_DESCRIPTION_STRING, desc);
-            SDL_free(desc);
+        if (ctx->desc) {
+            SDL_SetStringProperty(decoder->props, IMG_PROP_METADATA_DESCRIPTION_STRING, ctx->desc);
+            SDL_free(ctx->desc);
+            ctx->desc = NULL;
         }
-        if (rights) {
-            SDL_SetStringProperty(decoder->props, IMG_PROP_METADATA_COPYRIGHT_STRING, rights);
-            SDL_free(rights);
+        if (ctx->rights) {
+            SDL_SetStringProperty(decoder->props, IMG_PROP_METADATA_COPYRIGHT_STRING, ctx->rights);
+            SDL_free(ctx->rights);
+            ctx->rights = NULL;
         }
-        if (title) {
-            SDL_SetStringProperty(decoder->props, IMG_PROP_METADATA_TITLE_STRING, title);
-            SDL_free(title);
+        if (ctx->title) {
+            SDL_SetStringProperty(decoder->props, IMG_PROP_METADATA_TITLE_STRING, ctx->title);
+            SDL_free(ctx->title);
+            ctx->title = NULL;
         }
-        if (author) {
-            SDL_SetStringProperty(decoder->props, IMG_PROP_METADATA_AUTHOR_STRING, author);
-            SDL_free(author);
+        if (ctx->author) {
+            SDL_SetStringProperty(decoder->props, IMG_PROP_METADATA_AUTHOR_STRING, ctx->author);
+            SDL_free(ctx->author);
+            ctx->author = NULL;
         }
-        if (creationtime) {
-            SDL_SetStringProperty(decoder->props, IMG_PROP_METADATA_CREATION_TIME_STRING, creationtime);
-            SDL_free(creationtime);
+        if (ctx->creationtime) {
+            SDL_SetStringProperty(decoder->props, IMG_PROP_METADATA_CREATION_TIME_STRING, ctx->creationtime);
+            SDL_free(ctx->creationtime);
+            ctx->creationtime = NULL;
         }
     }
 

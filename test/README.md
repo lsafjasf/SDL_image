@@ -9,6 +9,17 @@ Configure with `--enable-tests` (Autotools) or `-DSDLIMAGE_TESTS` (CMake).
 Run build-time tests in the usual way, for example `make check`
 (Autotools), or `ctest` or `make test` (CMake).
 
+Focused format and recovery coverage can be run with:
+
+```sh
+cmake --build build --target check-format
+```
+
+This builds and runs `testformat`, which checks PNG 16-bit, palette and
+alpha data, GIF/WebP/APNG dimensions, frame delays and loop count,
+extension/format mismatches, and memory-backed malformed inputs. Every
+malformed load is followed by a successful load in the same thread.
+
 "As-installed" tests
 --------------------
 

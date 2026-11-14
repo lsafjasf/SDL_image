@@ -20,4 +20,5 @@
 */
 
 extern SDL_Surface *IMG_ApplyOrientation(SDL_Surface *surface, int orientation);
+extern bool IMG_ValidateSurfaceDimensions(Uint32 width, Uint32 height, int bytes_per_pixel);
 

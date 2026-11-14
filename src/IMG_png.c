@@ -43,7 +43,7 @@ bool IMG_isPNG(SDL_IOStream *src)
 {
     Sint64 start;
     bool is_PNG;
-    Uint8 magic[4];
+    Uint8 magic[8];
 
     if (!src) {
         return false;
@@ -55,7 +55,11 @@ bool IMG_isPNG(SDL_IOStream *src)
         if (magic[0] == 0x89 &&
             magic[1] == 'P' &&
             magic[2] == 'N' &&
-            magic[3] == 'G') {
+            magic[3] == 'G' &&
+            magic[4] == '\r' &&
+            magic[5] == '\n' &&
+            magic[6] == 0x1A &&
+            magic[7] == '\n') {
             is_PNG = true;
         }
     }
